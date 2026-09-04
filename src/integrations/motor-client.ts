@@ -1,4 +1,9 @@
-import { createMotorRequest, type MotorHandshakeData, type MotorHandshakePayload, type MotorResponse } from "../contracts/motor-petra.js";
+import {
+  createMotorRequest,
+  type MotorHandshakeData,
+  type MotorHandshakePayload,
+  type MotorResponse,
+} from "../contracts/motor-petra-v1.js";
 
 export interface MotorClientOptions {
   baseUrl: string;
@@ -23,13 +28,12 @@ export class MotorPetraClient {
       capabilities: input.capabilities,
     };
 
-    const request = createMotorRequest({
-      source: "PETRA",
-      target: "MOTOR-PETRA",
-      tenantId: input.tenantId,
-      actor: { id: input.actorId, type: input.actorType },
+    const request = createMotorRequest(
       payload,
-    });
+      input.tenantId,
+      { id: input.actorId, type: input.actorType, scopes: ["motor:handshake"] },
+      { source: "PETRA", target: "MOTOR-PETRA" },
+    );
 
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), this.options.timeoutMs ?? 5000);
@@ -46,7 +50,9 @@ export class MotorPetraClient {
       });
 
       const result = (await response.json()) as MotorResponse<MotorHandshakeData>;
-      if (!response.ok) throw new Error(result.error?.message ?? `MOTOR PETRA retornou HTTP ${response.status}.`);
+      if (!response.ok) {
+        throw new Error(result.error?.message ?? `MOTOR PETRA retornou HTTP ${response.status}.`);
+      }
       return result;
     } finally {
       clearTimeout(timer);
