@@ -2,6 +2,7 @@ import { createServer } from "node:http";
 import { loadConfig } from "./core/config.js";
 import { databaseConfigured } from "./core/database.js";
 import { MotorPetraClient } from "./integrations/motor-client.js";
+import { handleApi } from "./api/routes.js";
 
 const config = loadConfig();
 const motor = config.motorUrl
@@ -51,6 +52,10 @@ const server = createServer(async (request, response) => {
       json(response, result.ok ? 200 : 502, result);
     } catch (error) { json(response, 502, { ok: false, error: { code: "MOTOR_UNREACHABLE", message: error instanceof Error ? error.message : "Falha na comunicação com o MOTOR PETRA." } }); }
     return;
+  }
+  if (request.method && url.startsWith("/api/v1/")) {
+    const handled = await handleApi(request, response, url);
+    if (handled) return;
   }
   json(response, 404, { ok: false, error: { code: "NOT_FOUND", message: "Rota não encontrada." } });
 });
