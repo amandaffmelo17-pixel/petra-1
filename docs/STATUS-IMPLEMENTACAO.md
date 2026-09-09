@@ -32,24 +32,32 @@
 - [x] Comissões
 - [x] Fila de automações/integradores
 - [x] Sessões e mensagens do Assistente
+- [x] API operacional inicial para dashboard, clientes, pedidos e medições
+- [x] Liberação de produção via API com validação do banco
+- [x] Controle inicial de tenant e papéis em desenvolvimento
+- [x] Documentação da API e contrato de publicação
 
 ## Ainda necessário antes de chamar o PETRA de produção
 
 Estes itens dependem de infraestrutura/credenciais e execução real; não serão marcados como concluídos apenas por existir código:
 
-- [ ] Executar as migrations `001_initial_petra.sql` e `002_operational_completion.sql` em um PostgreSQL real
+- [ ] Executar migrations em PostgreSQL real
 - [ ] Configurar `PETRA_DATABASE_URL` no ambiente de execução
-- [ ] Ligar os endpoints do runtime às tabelas reais e implementar CRUD completo por módulo
+- [ ] CRUD completo dos módulos restantes
 - [ ] Autenticação real e RBAC aplicado a cada rota/consulta
-- [ ] Isolamento de tenant aplicado em runtime e, quando o ambiente estiver preparado, reforçado por RLS
+- [ ] Isolamento de tenant reforçado por mecanismo de autenticação e RLS quando preparado
 - [ ] Storage documental real e upload/download de anexos
-- [ ] Geração real de PDFs de orçamento, pedido, medição, produção, carregamento e instalação
-- [ ] Editor de desenho técnico funcional (A4, escala, cotas, biblioteca, aprovação e exportação)
-- [ ] Trello/WhatsApp e demais integrações com credenciais reais
-- [ ] Assistente conectado aos dados do tenant e às permissões do usuário
+- [ ] Geração real de PDFs
+- [ ] Editor de desenho técnico funcional
+- [ ] Integrações Trello/WhatsApp com credenciais reais
+- [ ] Assistente conectado aos dados do tenant e permissões do usuário
 - [ ] Testes automatizados executados contra banco de teste
 - [ ] Deploy público e validação da URL de produção
 
+## Arquitetura de execução
+
+O aplicativo executado pelos usuários será o `porcelane.operacional`. O PETRA fornece o motor/API de gestão para esse aplicativo. O Porcelane antigo permanece separado e não deve ser alterado.
+
 ## Regra de conclusão
 
-O PETRA só será considerado produto de produção quando os itens acima forem executados e validados em ambiente real. O repositório agora contém a fundação operacional e as regras críticas de banco; isso não equivale, sozinho, a um deploy de produção.
+O PETRA só será considerado produto de produção quando infraestrutura, autenticação, publicação e testes reais forem executados e validados. O código atual já contém uma fundação operacional e as regras críticas de banco, mas ainda não é correto declarar produção concluída sem esses passos externos.
