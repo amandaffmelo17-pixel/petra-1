@@ -31,11 +31,16 @@
 - [x] Financeiro e status de pagamento
 - [x] Comissões
 - [x] Fila de automações/integradores
+- [x] Motor de automações por eventos com jobs duráveis (migration 004)
+- [x] Automações para orçamento aprovado, medição aprovada, liberação de produção, instalação, finalização e pagamento reconhecido
+- [x] Job automático para criação de cartão `PEDIDO` no Trello após finalização
 - [x] Sessões e mensagens do Assistente
 - [x] API operacional inicial para dashboard, clientes, pedidos e medições
 - [x] Liberação de produção via API com validação do banco
 - [x] Controle inicial de tenant e papéis em desenvolvimento
+- [x] Runner de migrations corrigido para não perder migrations com o mesmo prefixo numérico
 - [x] Documentação da API e contrato de publicação
+- [x] Contrato específico de integração com Bolt (`docs/BOLT-INTEGRACAO.md`)
 
 ## Ainda necessário antes de chamar o PETRA de produção
 
@@ -49,6 +54,7 @@ Estes itens dependem de infraestrutura/credenciais e execução real; não serã
 - [ ] Storage documental real e upload/download de anexos
 - [ ] Geração real de PDFs
 - [ ] Editor de desenho técnico funcional
+- [ ] Worker/adaptadores reais para processar `automation_jobs`
 - [ ] Integrações Trello/WhatsApp com credenciais reais
 - [ ] Assistente conectado aos dados do tenant e permissões do usuário
 - [ ] Testes automatizados executados contra banco de teste
@@ -60,4 +66,4 @@ O aplicativo executado pelos usuários será o `porcelane.operacional`. O PETRA 
 
 ## Regra de conclusão
 
-O PETRA só será considerado produto de produção quando infraestrutura, autenticação, publicação e testes reais forem executados e validados. O código atual já contém uma fundação operacional e as regras críticas de banco, mas ainda não é correto declarar produção concluída sem esses passos externos.
+O PETRA só será considerado produto de produção quando infraestrutura, autenticação, publicação e testes reais forem executados e validados. O código atual contém a fundação operacional, as regras críticas de banco e o motor de automações; as integrações externas ainda precisam de suas credenciais e worker de execução.
