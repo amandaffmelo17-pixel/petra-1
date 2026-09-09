@@ -2,103 +2,23 @@ import { randomUUID } from "node:crypto";
 import type { IncomingMessage, ServerResponse } from "node:http";
 import { query } from "../core/database.js";
 
-const json = (res: ServerResponse, status: number, body: unknown) => {
-  res.writeHead(status, { "Content-Type": "application/json; charset=utf-8", "Cache-Control": "no-store" });
-  res.end(JSON.stringify(body));
-};
-
-async function body(req: IncomingMessage): Promise<Record<string, unknown>> {
-  const chunks: Buffer[] = [];
-  for await (const chunk of req) chunks.push(Buffer.from(chunk));
-  if (!chunks.length) return {};
-  try { return JSON.parse(Buffer.concat(chunks).toString("utf8")); } catch { throw Object.assign(new Error("JSON inválido."), { status: 400, code: "INVALID_JSON" }); }
-}
-
-function tenant(req: IncomingMessage): string {
-  const id = req.headers["x-petra-company-id"];
-  if (process.env.PETRA_ENVIRONMENT !== "development" || typeof id !== "string" || !/^[0-9a-f-]{36}$/i.test(id)) {
-    throw Object.assign(new Error("Contexto da empresa não autenticado."), { status: 401, code: "TENANT_CONTEXT_REQUIRED" });
-  }
-  return id;
-}
-
-function role(req: IncomingMessage, allowed: string[]) {
-  const value = req.headers["x-petra-role"];
-  if (typeof value !== "string" || !allowed.includes(value)) throw Object.assign(new Error("Permissão insuficiente."), { status: 403, code: "FORBIDDEN" });
-}
-
-export async function handleApi(req: IncomingMessage, res: ServerResponse, path: string): Promise<boolean> {
-  if (!path.startsWith("/api/v1/")) return false;
-  try {
-    const companyId = tenant(req);
-    const parts = path.replace(/^\/api\/v1\//, "").split("/").filter(Boolean);
-    const resource = parts[0]; const id = parts[1];
-
-    if (resource === "dashboard" && req.method === "GET") {
-      const [c,q,o,i] = await Promise.all([
-        query<{count:string}>("select count(*)::text count from petra.customers where company_id=$1",[companyId]),
-        query<{count:string}>("select count(*)::text count from petra.quotes where company_id=$1 and status not in ('approved','refused','expired')",[companyId]),
-        query<{count:string}>("select count(*)::text count from petra.orders where company_id=$1 and status not in ('finished','cancelled')",[companyId]),
-        query<{count:string}>("select count(*)::text count from petra.installations where company_id=$1 and status='scheduled'",[companyId])
-      ]);
-      return void json(res,200,{ok:true,data:{customers:Number(c[0]?.count??0),openQuotes:Number(q[0]?.count??0),activeOrders:Number(o[0]?.count??0),plannedInstallations:Number(i[0]?.count??0)}});
-    }
-
-    if (resource === "clients" && !id && req.method === "GET") {
-      const rows=await query("select id,name,document_number,email,phone,whatsapp,address,notes,created_at,updated_at from petra.customers where company_id=$1 order by created_at desc",[companyId]);
-      return void json(res,200,{ok:true,data:rows});
-    }
-    if (resource === "clients" && !id && req.method === "POST") {
-      role(req,["admin","commercial"]); const b=await body(req);
-      if(typeof b.name!=="string"||!b.name.trim()) return void json(res,400,{ok:false,error:{code:"NAME_REQUIRED",message:"Nome do cliente é obrigatório."}});
-      const rows=await query("insert into petra.customers(company_id,name,document_number,email,phone,whatsapp,address,notes) values($1,$2,$3,$4,$5,$6,$7,$8) returning *",[companyId,b.name.trim(),b.document_number??null,b.email??null,b.phone??null,b.whatsapp??null,b.address??{},b.notes??null]);
-      return void json(res,201,{ok:true,data:rows[0]});
-    }
-
-    if(resource==="orders"&&!id&&req.method==="GET"){
-      const rows=await query("select o.*,c.name customer_name from petra.orders o join petra.customers c on c.id=o.customer_id and c.company_id=o.company_id where o.company_id=$1 order by o.created_at desc",[companyId]);
-      return void json(res,200,{ok:true,data:rows});
-    }
-    if(resource==="orders"&&!id&&req.method==="POST"){
-      role(req,["admin","commercial"]); const b=await body(req);
-      if(typeof b.customer_id!=="string"||typeof b.number!=="string"||!b.number.trim()) return void json(res,400,{ok:false,error:{code:"ORDER_FIELDS_REQUIRED",message:"customer_id e number são obrigatórios."}});
-      const customer=await query<{id:string}>("select id from petra.customers where id=$1 and company_id=$2",[b.customer_id,companyId]);
-      if(!customer.length) return void json(res,404,{ok:false,error:{code:"CUSTOMER_NOT_FOUND",message:"Cliente não encontrado nesta empresa."}});
-      const rows=await query("insert into petra.orders(company_id,customer_id,work_id,quote_id,number,status,payment_terms,total,notes) values($1,$2,$3,$4,$5,'new',$6,$7,$8) returning *",[companyId,b.customer_id,b.work_id??null,b.quote_id??null,b.number.trim(),b.payment_terms??null,Number(b.total??0),b.notes??null]);
-      return void json(res,201,{ok:true,data:rows[0]});
-    }
-    if(resource==="orders"&&id&&req.method==="GET"){
-      const rows=await query("select o.*,c.name customer_name from petra.orders o join petra.customers c on c.id=o.customer_id where o.id=$1 and o.company_id=$2",[id,companyId]);
-      if(!rows.length)return void json(res,404,{ok:false,error:{code:"ORDER_NOT_FOUND",message:"Pedido não encontrado."}});
-      const measurements=await query("select * from petra.measurements where order_id=$1 and company_id=$2 order by measured_at desc",[id,companyId]);
-      const release=await query("select * from petra.production_releases where order_id=$1 and company_id=$2",[id,companyId]);
-      return void json(res,200,{ok:true,data:{...rows[0] as object,measurements,productionRelease:release[0]??null}});
-    }
-
-    if(resource==="orders"&&id&&parts[2]==="measurements"&&req.method==="POST"){
-      role(req,["admin","technical"]); const b=await body(req);
-      if(!b.measured_at)return void json(res,400,{ok:false,error:{code:"MEASURED_AT_REQUIRED",message:"A data da medição é obrigatória."}});
-      const order=await query("select id from petra.orders where id=$1 and company_id=$2",[id,companyId]);
-      if(!order.length)return void json(res,404,{ok:false,error:{code:"ORDER_NOT_FOUND",message:"Pedido não encontrado."}});
-      const rows=await query("insert into petra.measurements(company_id,order_id,environment_id,measured_at,status,checklist,evidence,notes) values($1,$2,$3,$4,$5,$6,$7,$8) returning *",[companyId,id,b.environment_id??null,b.measured_at,b.status??"draft",b.checklist??{},b.evidence??[],b.notes??null]);
-      return void json(res,201,{ok:true,data:rows[0]});
-    }
-
-    if(resource==="orders"&&id&&parts[2]==="production-release"&&req.method==="POST"){
-      role(req,["admin","technical","production"]); const b=await body(req);
-      if(typeof b.measurement_id!=="string")return void json(res,400,{ok:false,error:{code:"MEASUREMENT_REQUIRED",message:"measurement_id é obrigatório."}});
-      const rows=await query("insert into petra.production_releases(id,company_id,order_id,measurement_id,notes) values($1,$2,$3,$4,$5) returning *",[randomUUID(),companyId,id,b.measurement_id,b.notes??null]);
-      await query("update petra.orders set production_released_at=now(),status='production' where id=$1 and company_id=$2",[id,companyId]);
-      return void json(res,201,{ok:true,data:rows[0]});
-    }
-
-    if(resource==="orders"&&id&&parts[2]==="status"&&req.method==="PATCH"){
-      role(req,["admin","commercial","technical","production","installation"]); const b=await body(req);
-      if(typeof b.status!=="string")return void json(res,400,{ok:false,error:{code:"STATUS_REQUIRED",message:"status é obrigatório."}});
-      const rows=await query("update petra.orders set status=$1 where id=$2 and company_id=$3 returning *",[b.status,id,companyId]);
-      if(!rows.length)return void json(res,404,{ok:false,error:{code:"ORDER_NOT_FOUND",message:"Pedido não encontrado ou alteração bloqueada."}});
-      return void json(res,200,{ok:true,data:rows[0]});
-    }
-    return void json(res,404,{ok:false,error:{code:"NOT_FOUND",message:"Endpoint não encontrado."}});
-  } catch(error){ const e=error as Error&{status?:number;code?:string}; return void json(res,e.status??500,{ok:false,error:{code:e.code??"INTERNAL_ERROR",message:e.message}}); }
+const json=(res:ServerResponse,status:number,body:unknown)=>{res.writeHead(status,{"Content-Type":"application/json; charset=utf-8","Cache-Control":"no-store"});res.end(JSON.stringify(body));};
+async function body(req:IncomingMessage):Promise<Record<string,unknown>>{const chunks:Buffer[]=[];for await(const chunk of req)chunks.push(Buffer.from(chunk));if(!chunks.length)return{};try{return JSON.parse(Buffer.concat(chunks).toString("utf8"));}catch{throw Object.assign(new Error("JSON inválido."),{status:400,code:"INVALID_JSON"});}}
+function tenant(req:IncomingMessage):string{const id=req.headers["x-petra-company-id"];if(process.env.PETRA_ENVIRONMENT!=="development"||typeof id!=="string"||!/^[0-9a-f-]{36}$/i.test(id))throw Object.assign(new Error("Contexto da empresa não autenticado."),{status:401,code:"TENANT_CONTEXT_REQUIRED"});return id;}
+function role(req:IncomingMessage,allowed:string[]){const value=req.headers["x-petra-role"];if(typeof value!=="string"||!allowed.includes(value))throw Object.assign(new Error("Permissão insuficiente."),{status:403,code:"FORBIDDEN"});}
+export async function handleApi(req:IncomingMessage,res:ServerResponse,path:string):Promise<boolean>{
+ if(!path.startsWith("/api/v1/"))return false;
+ try{
+  const companyId=tenant(req);const parts=path.replace(/^\/api\/v1\//,"").split("/").filter(Boolean);const resource=parts[0];const id=parts[1];
+  if(resource==="dashboard"&&req.method==="GET"){const[c,q,o,i]=await Promise.all([query<{count:string}>("select count(*)::text count from petra.customers where company_id=$1",[companyId]),query<{count:string}>("select count(*)::text count from petra.quotes where company_id=$1 and status not in ('approved','refused','expired')",[companyId]),query<{count:string}>("select count(*)::text count from petra.orders where company_id=$1 and status not in ('finished','cancelled')",[companyId]),query<{count:string}>("select count(*)::text count from petra.installations where company_id=$1 and status='scheduled'",[companyId])]);json(res,200,{ok:true,data:{customers:Number(c[0]?.count??0),openQuotes:Number(q[0]?.count??0),activeOrders:Number(o[0]?.count??0),plannedInstallations:Number(i[0]?.count??0)}});return true;}
+  if(resource==="clients"&&!id&&req.method==="GET"){json(res,200,{ok:true,data:await query("select id,name,document_number,email,phone,whatsapp,address,notes,created_at,updated_at from petra.customers where company_id=$1 order by created_at desc",[companyId])});return true;}
+  if(resource==="clients"&&!id&&req.method==="POST"){role(req,["admin","commercial"]);const b=await body(req);if(typeof b.name!=="string"||!b.name.trim()){json(res,400,{ok:false,error:{code:"NAME_REQUIRED",message:"Nome do cliente é obrigatório."}});return true;}const rows=await query("insert into petra.customers(company_id,name,document_number,email,phone,whatsapp,address,notes) values($1,$2,$3,$4,$5,$6,$7,$8) returning *",[companyId,b.name.trim(),b.document_number??null,b.email??null,b.phone??null,b.whatsapp??null,b.address??{},b.notes??null]);json(res,201,{ok:true,data:rows[0]});return true;}
+  if(resource==="orders"&&!id&&req.method==="GET"){json(res,200,{ok:true,data:await query("select o.*,c.name customer_name from petra.orders o join petra.customers c on c.id=o.customer_id and c.company_id=o.company_id where o.company_id=$1 order by o.created_at desc",[companyId])});return true;}
+  if(resource==="orders"&&!id&&req.method==="POST"){role(req,["admin","commercial"]);const b=await body(req);if(typeof b.customer_id!=="string"||typeof b.number!=="string"||!b.number.trim()){json(res,400,{ok:false,error:{code:"ORDER_FIELDS_REQUIRED",message:"customer_id e number são obrigatórios."}});return true;}const customer=await query<{id:string}>("select id from petra.customers where id=$1 and company_id=$2",[b.customer_id,companyId]);if(!customer.length){json(res,404,{ok:false,error:{code:"CUSTOMER_NOT_FOUND",message:"Cliente não encontrado nesta empresa."}});return true;}const rows=await query("insert into petra.orders(company_id,customer_id,work_id,quote_id,number,status,payment_terms,total,notes) values($1,$2,$3,$4,$5,'new',$6,$7,$8) returning *",[companyId,b.customer_id,b.work_id??null,b.quote_id??null,b.number.trim(),b.payment_terms??null,Number(b.total??0),b.notes??null]);json(res,201,{ok:true,data:rows[0]});return true;}
+  if(resource==="orders"&&id&&req.method==="GET"){const rows=await query("select o.*,c.name customer_name from petra.orders o join petra.customers c on c.id=o.customer_id where o.id=$1 and o.company_id=$2",[id,companyId]);if(!rows.length){json(res,404,{ok:false,error:{code:"ORDER_NOT_FOUND",message:"Pedido não encontrado."}});return true;}const measurements=await query("select * from petra.measurements where order_id=$1 and company_id=$2 order by measured_at desc",[id,companyId]);const release=await query("select * from petra.production_releases where order_id=$1 and company_id=$2",[id,companyId]);json(res,200,{ok:true,data:{...rows[0] as object,measurements,productionRelease:release[0]??null}});return true;}
+  if(resource==="orders"&&id&&parts[2]==="measurements"&&req.method==="POST"){role(req,["admin","technical"]);const b=await body(req);if(!b.measured_at){json(res,400,{ok:false,error:{code:"MEASURED_AT_REQUIRED",message:"A data da medição é obrigatória."}});return true;}const order=await query("select id from petra.orders where id=$1 and company_id=$2",[id,companyId]);if(!order.length){json(res,404,{ok:false,error:{code:"ORDER_NOT_FOUND",message:"Pedido não encontrado."}});return true;}const rows=await query("insert into petra.measurements(company_id,order_id,environment_id,measured_at,status,checklist,evidence,notes) values($1,$2,$3,$4,$5,$6,$7,$8) returning *",[companyId,id,b.environment_id??null,b.measured_at,b.status??"draft",b.checklist??{},b.evidence??[],b.notes??null]);json(res,201,{ok:true,data:rows[0]});return true;}
+  if(resource==="orders"&&id&&parts[2]==="production-release"&&req.method==="POST"){role(req,["admin","technical","production"]);const b=await body(req);if(typeof b.measurement_id!=="string"){json(res,400,{ok:false,error:{code:"MEASUREMENT_REQUIRED",message:"measurement_id é obrigatório."}});return true;}const rows=await query("insert into petra.production_releases(id,company_id,order_id,measurement_id,notes) values($1,$2,$3,$4,$5) returning *",[randomUUID(),companyId,id,b.measurement_id,b.notes??null]);await query("update petra.orders set production_released_at=now(),status='production' where id=$1 and company_id=$2",[id,companyId]);json(res,201,{ok:true,data:rows[0]});return true;}
+  if(resource==="orders"&&id&&parts[2]==="status"&&req.method==="PATCH"){role(req,["admin","commercial","technical","production","installation"]);const b=await body(req);if(typeof b.status!=="string"){json(res,400,{ok:false,error:{code:"STATUS_REQUIRED",message:"status é obrigatório."}});return true;}const rows=await query("update petra.orders set status=$1 where id=$2 and company_id=$3 returning *",[b.status,id,companyId]);if(!rows.length){json(res,404,{ok:false,error:{code:"ORDER_NOT_FOUND",message:"Pedido não encontrado ou alteração bloqueada."}});return true;}json(res,200,{ok:true,data:rows[0]});return true;}
+  json(res,404,{ok:false,error:{code:"NOT_FOUND",message:"Endpoint não encontrado."}});return true;
+ }catch(error){const e=error as Error&{status?:number;code?:string};json(res,e.status??500,{ok:false,error:{code:e.code??"INTERNAL_ERROR",message:e.message}});return true;}
 }
