@@ -46,6 +46,44 @@ create or replace function petra.touch_demand_updated_at() returns trigger langu
 drop trigger if exists trg_demands_updated_at on petra.demands;
 create trigger trg_demands_updated_at before update on petra.demands for each row execute function petra.touch_demand_updated_at();
 
+-- Automatically create the first operational demand and receivable when an order enters PETRA.
+create or replace function petra.seed_order_operations() returns trigger language plpgsql as $$
+declare v_due timestamptz := now()+interval '1 day';
+begin
+  insert into petra.demands(company_id,order_id,title,task_type,status,priority,starts_at,due_at,estimated_minutes,metadata)
+  values(new.company_id,new.id,'Conferência / Medição','measurement','pending','high',now(),v_due,120,jsonb_build_object('stage','conference'))
+  on conflict do nothing;
+  insert into petra.financial_entries(company_id,customer_id,order_id,type,description,amount,due_date,status,metadata)
+  values(new.company_id,new.customer_id,new.id,'receivable','Valor do pedido',new.total,null,'pending',jsonb_build_object('source','order.created'))
+  on conflict do nothing;
+  return new;
+end; $$;
+drop trigger if exists trg_seed_order_operations on petra.orders;
+create trigger trg_seed_order_operations after insert on petra.orders for each row execute function petra.seed_order_operations();
+
+-- Every operational stage creates a dated demand automatically; existing stage demand is reused.
+create or replace function petra.seed_stage_demand() returns trigger language plpgsql as $$
+declare v_title text; v_type text; v_days integer; v_priority petra.task_priority := 'normal';
+begin
+ if new.status is distinct from old.status then
+  if new.status='conference' then v_title:='Conferência / Medição'; v_type:='measurement'; v_days:=1; v_priority:='high';
+  elsif new.status='technical' then v_title:='Desenho Técnico / Compatibilização'; v_type:='technical'; v_days:=2;
+  elsif new.status='production' then v_title:='Produção'; v_type:='production'; v_days:=3;
+  elsif new.status='finishing' then v_title:='Acabamento'; v_type:='finishing'; v_days:=1;
+  elsif new.status='logistics' then v_title:='Carregamento / Romaneio'; v_type:='logistics'; v_days:=1;
+  elsif new.status='installation' then v_title:='Instalação'; v_type:='installation'; v_days:=coalesce(greatest(1,(new.installation_planned_date-current_date)),1);
+  else v_title:=null;
+  end if;
+  if v_title is not null and not exists(select 1 from petra.demands where company_id=new.company_id and order_id=new.id and metadata->>'stage'=new.status) then
+    insert into petra.demands(company_id,order_id,title,task_type,status,priority,starts_at,due_at,estimated_minutes,metadata)
+    values(new.company_id,new.id,v_title,v_type,'pending',v_priority,now(),now()+(v_days||' days')::interval,case v_type when 'production' then 480 when 'installation' then 360 else 120 end,jsonb_build_object('stage',new.status));
+  end if;
+ end if;
+ return new;
+end; $$;
+drop trigger if exists trg_seed_stage_demand on petra.orders;
+create trigger trg_seed_stage_demand after update of status on petra.orders for each row execute function petra.seed_stage_demand();
+
 create or replace view petra.productivity_by_user as
 select d.company_id,d.responsible_user_id,u.full_name,
  count(*) filter(where d.status<>'cancelled') as total_demands,
