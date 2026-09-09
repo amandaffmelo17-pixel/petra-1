@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import type { IncomingMessage, ServerResponse } from "node:http";
-import { query } from "../core/database.js";
+import { databaseConfigured, query } from "../core/database.js";
 
 const json=(res:ServerResponse,status:number,body:unknown)=>{res.writeHead(status,{"Content-Type":"application/json; charset=utf-8","Cache-Control":"no-store"});res.end(JSON.stringify(body));};
 async function body(req:IncomingMessage):Promise<Record<string,unknown>>{const chunks:Buffer[]=[];for await(const chunk of req)chunks.push(Buffer.from(chunk));if(!chunks.length)return{};try{return JSON.parse(Buffer.concat(chunks).toString("utf8"));}catch{throw Object.assign(new Error("JSON inválido."),{status:400,code:"INVALID_JSON"});}}
@@ -9,7 +9,23 @@ function role(req:IncomingMessage,allowed:string[]){const value=req.headers["x-p
 export async function handleApi(req:IncomingMessage,res:ServerResponse,path:string):Promise<boolean>{
  if(!path.startsWith("/api/v1/"))return false;
  try{
-  const companyId=tenant(req);const parts=path.replace(/^\/api\/v1\//,"").split("/").filter(Boolean);const resource=parts[0];const id=parts[1];
+  const parts=path.replace(/^\/api\/v1\//,"").split("/").filter(Boolean);const resource=parts[0];const id=parts[1];
+  if(resource==="setup"&&parts[1]==="status"&&req.method==="GET"){
+   let databaseReachable=false;let migrationsCurrent=false;let migrationError:string|undefined;
+   if(databaseConfigured()){
+    try{
+     await query("select 1");
+     databaseReachable=true;
+     const rows=await query<{version:string}>("select version from petra.schema_migrations order by version desc");
+     migrationsCurrent=rows.some((row)=>row.version==="004_automation_engine");
+    }catch(error){migrationError=error instanceof Error?error.message:"Falha ao verificar banco de dados.";}
+   }
+   const motorConfigured=Boolean(process.env.MOTOR_PETRA_URL);
+   const workerEnabled=process.env.PETRA_AUTOMATION_WORKER_ENABLED==="true";
+   json(res,200,{ok:true,data:{ready:databaseReachable&&migrationsCurrent,checks:{databaseConfigured:databaseConfigured(),databaseReachable,migrationsCurrent,motorConfigured,automationWorkerEnabled:workerEnabled},required:["PETRA_DATABASE_URL","migrations 001-004"],optional:["MOTOR_PETRA_URL","MOTOR_PETRA_SERVICE_TOKEN","PETRA_AUTOMATION_WORKER_ENABLED"],error:migrationError??null}});
+   return true;
+  }
+  const companyId=tenant(req);
   if(resource==="dashboard"&&req.method==="GET"){const[c,q,o,i]=await Promise.all([query<{count:string}>("select count(*)::text count from petra.customers where company_id=$1",[companyId]),query<{count:string}>("select count(*)::text count from petra.quotes where company_id=$1 and status not in ('approved','refused','expired')",[companyId]),query<{count:string}>("select count(*)::text count from petra.orders where company_id=$1 and status not in ('finished','cancelled')",[companyId]),query<{count:string}>("select count(*)::text count from petra.installations where company_id=$1 and status='scheduled'",[companyId])]);json(res,200,{ok:true,data:{customers:Number(c[0]?.count??0),openQuotes:Number(q[0]?.count??0),activeOrders:Number(o[0]?.count??0),plannedInstallations:Number(i[0]?.count??0)}});return true;}
   if(resource==="clients"&&!id&&req.method==="GET"){json(res,200,{ok:true,data:await query("select id,name,document_number,email,phone,whatsapp,address,notes,created_at,updated_at from petra.customers where company_id=$1 order by created_at desc",[companyId])});return true;}
   if(resource==="clients"&&!id&&req.method==="POST"){role(req,["admin","commercial"]);const b=await body(req);if(typeof b.name!=="string"||!b.name.trim()){json(res,400,{ok:false,error:{code:"NAME_REQUIRED",message:"Nome do cliente é obrigatório."}});return true;}const rows=await query("insert into petra.customers(company_id,name,document_number,email,phone,whatsapp,address,notes) values($1,$2,$3,$4,$5,$6,$7,$8) returning *",[companyId,b.name.trim(),b.document_number??null,b.email??null,b.phone??null,b.whatsapp??null,b.address??{},b.notes??null]);json(res,201,{ok:true,data:rows[0]});return true;}
