@@ -1,2 +1,7 @@
 node_modules/
 .env
+database/.env
+.env.*
+!.env.example
+database/.env.*
+!database/.env.example
