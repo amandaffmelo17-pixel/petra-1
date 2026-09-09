@@ -1,43 +1,55 @@
 # Status de Implementação do PETRA
 
-## Base concluída
+## Concluído no repositório
 
-- [x] README oficial
-- [x] Contrato PETRA ↔ MOTOR PETRA
+- [x] README oficial e arquitetura PETRA ↔ MOTOR PETRA
 - [x] Cliente/adaptador do MOTOR PETRA
 - [x] Configuração por ambiente sem secrets no código
-- [x] Contexto e isolamento por tenant
-- [x] Catálogo oficial de módulos
-- [x] Barramento inicial de eventos
-- [x] Arquitetura de implementação documentada
 - [x] Runtime Node executável (`src/server.ts`)
 - [x] Endpoint de saúde (`GET /health`)
-- [x] Endpoint base da API (`GET /api`)
-- [x] Handshake opcional com o MOTOR PETRA (`POST /api/v1/motor/handshake`)
+- [x] Endpoint de catálogo da API (`GET /api`)
+- [x] Handshake opcional com o MOTOR PETRA
 - [x] Interface inicial do painel PETRA
 - [x] Proteção de arquivos de ambiente no Git
-- [x] Remoção do arquivo de ambiente com credencial de desenvolvimento que estava versionado
+- [x] Remoção da credencial de desenvolvimento que estava versionada
+- [x] Dependência PostgreSQL e adaptador de banco (`src/core/database.ts`)
+- [x] Configuração `PETRA_DATABASE_URL`
+- [x] Schema inicial multiempresa
+- [x] Clientes, obras, ambientes, orçamentos, pedidos, itens e documentos
+- [x] Eventos e auditoria estruturados
+- [x] Medição/conferência com status, data, checklist e evidências
+- [x] Liberação de produção auditável
+- [x] Regra de banco: produção exige medição aprovada com data
+- [x] Regra de banco: pedido não entra em produção ou etapas posteriores sem liberação
+- [x] Imutabilidade de pedido encerrado na camada de banco
+- [x] Desenho técnico com A4, escala, dados do desenho e aprovação
+- [x] Ordem de produção e itens de produção
+- [x] Acabamento
+- [x] Logística/carregamento
+- [x] Instalação com equipe, checklist, evidências e aceite
+- [x] Estoque e movimentos de estoque
+- [x] Financeiro e status de pagamento
+- [x] Comissões
+- [x] Fila de automações/integradores
+- [x] Sessões e mensagens do Assistente
 
-## Ainda necessário para considerar o PETRA produto de produção
+## Ainda necessário antes de chamar o PETRA de produção
 
-- [ ] Persistência real conectada ao ambiente de produção
-- [ ] Autenticação e RBAC de produção
-- [ ] Storage documental real
-- [ ] Auditoria persistente
-- [ ] Implementação completa dos módulos operacionais
-- [ ] Orçamento completo com ambientes, insumos, beneficiamentos, aprovação e documentos
-- [ ] Pedido completo e imutabilidade após encerramento
-- [ ] Medição/conferência com checklist e evidências
-- [ ] Desenho técnico com escala, cotas, biblioteca e aprovação
-- [ ] Produção com ordem de corte e liberação condicionada à medição
-- [ ] Acabamento, carregamento, instalação e pós-venda completos
-- [ ] Financeiro e estoque integrados
-- [ ] Central de documentos e anexos
-- [ ] Automações e integrações externas, incluindo Trello/WhatsApp quando configurados
-- [ ] Assistente com contexto real, permissões e dados do tenant
-- [ ] Testes automatizados e testes de integração executados em ambiente
-- [ ] Deploy de produção e validação da URL pública
+Estes itens dependem de infraestrutura/credenciais e execução real; não serão marcados como concluídos apenas por existir código:
+
+- [ ] Executar as migrations `001_initial_petra.sql` e `002_operational_completion.sql` em um PostgreSQL real
+- [ ] Configurar `PETRA_DATABASE_URL` no ambiente de execução
+- [ ] Ligar os endpoints do runtime às tabelas reais e implementar CRUD completo por módulo
+- [ ] Autenticação real e RBAC aplicado a cada rota/consulta
+- [ ] Isolamento de tenant aplicado em runtime e, quando o ambiente estiver preparado, reforçado por RLS
+- [ ] Storage documental real e upload/download de anexos
+- [ ] Geração real de PDFs de orçamento, pedido, medição, produção, carregamento e instalação
+- [ ] Editor de desenho técnico funcional (A4, escala, cotas, biblioteca, aprovação e exportação)
+- [ ] Trello/WhatsApp e demais integrações com credenciais reais
+- [ ] Assistente conectado aos dados do tenant e às permissões do usuário
+- [ ] Testes automatizados executados contra banco de teste
+- [ ] Deploy público e validação da URL de produção
 
 ## Regra de conclusão
 
-Um item só deve ser marcado como concluído quando estiver implementado e testado em ambiente real. Documentação ou uma tela visual, sozinhas, não significam que o módulo esteja pronto.
+O PETRA só será considerado produto de produção quando os itens acima forem executados e validados em ambiente real. O repositório agora contém a fundação operacional e as regras críticas de banco; isso não equivale, sozinho, a um deploy de produção.
