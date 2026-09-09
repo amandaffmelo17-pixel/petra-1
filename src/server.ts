@@ -10,7 +10,13 @@ const motor = config.motorUrl
   : null;
 
 const json = (response: import("node:http").ServerResponse, status: number, body: unknown) => {
-  response.writeHead(status, { "Content-Type": "application/json; charset=utf-8", "Cache-Control": "no-store" });
+  response.writeHead(status, {
+    "Content-Type": "application/json; charset=utf-8",
+    "Cache-Control": "no-store",
+    "Access-Control-Allow-Origin": process.env.PETRA_CORS_ORIGIN ?? "*",
+    "Access-Control-Allow-Headers": "Content-Type, Authorization, X-Petra-Company-Id, X-Petra-Role",
+    "Access-Control-Allow-Methods": "GET,POST,PATCH,PUT,DELETE,OPTIONS",
+  });
   response.end(JSON.stringify(body));
 };
 
@@ -32,6 +38,16 @@ const html = `<!doctype html>
 
 const server = createServer(async (request, response) => {
   const url = request.url?.split("?", 1)[0] ?? "/";
+  if (request.method === "OPTIONS") {
+    response.writeHead(204, {
+      "Access-Control-Allow-Origin": process.env.PETRA_CORS_ORIGIN ?? "*",
+      "Access-Control-Allow-Headers": "Content-Type, Authorization, X-Petra-Company-Id, X-Petra-Role",
+      "Access-Control-Allow-Methods": "GET,POST,PATCH,PUT,DELETE,OPTIONS",
+      "Access-Control-Max-Age": "86400",
+    });
+    response.end();
+    return;
+  }
   if (request.method === "GET" && url === "/") {
     response.writeHead(200, { "Content-Type": "text/html; charset=utf-8", "Cache-Control": "no-store" });
     response.end(html);
